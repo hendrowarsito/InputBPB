@@ -57,8 +57,8 @@ def save_to_single_sheet(data, excel_path, kota_kabupaten, tahun):
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             updated_data.to_excel(writer, index=False, sheet_name="BTB Data")
 
-# Direktori untuk menyimpan data
-DATA_DIR = "data_btb"
+# Direktori untuk menyimpan data, gunakan direktori writable di Streamlit Cloud (/tmp)
+DATA_DIR = "/tmp/data_btb"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
