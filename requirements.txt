@@ -1,2 +1,7 @@
-pdfplumber
-openpyxl
+streamlit>=1.36
+pandas>=2.0
+openpyxl>=3.1
+pdfplumber>=0.11
+pypdfium2>=4.30
+pytesseract>=0.3.10
+Pillow>=10.0
