@@ -212,6 +212,95 @@ def test_unduhan_wide_dan_long():
         assert len(pd.read_excel(buffer)) == baris
 
 
+# ---------------------------------------------------------------------------
+# Bentuk transpose
+# ---------------------------------------------------------------------------
+
+
+def test_urutan_baris_transpose():
+    transposed = btb.wide_to_transposed(dummy_sheet().to_wide())
+    assert list(transposed.index) == btb.ID_COLUMNS + btb.BUILDING_COLUMNS
+    assert list(transposed.index[:3]) == ["Provinsi", "Kota/Kabupaten", "Tahun"]
+    assert transposed.shape == (17, len(btb.ROW_LABELS))
+
+
+def test_xlsx_transpose_posisi_sel(tmp_path):
+    """Provinsi harus benar-benar di baris 1, Kota baris 2, Tahun baris 3."""
+    from openpyxl import load_workbook
+
+    path = str(tmp_path / "transpose.xlsx")
+    with open(path, "wb") as handle:
+        handle.write(btb.build_download(dummy_sheet().to_wide(), "transpose").getvalue())
+
+    worksheet = load_workbook(path)[btb.TRANSPOSE_SHEET_NAME]
+    assert worksheet["A1"].value == "Provinsi" and worksheet["B1"].value == "PROV. UJI"
+    assert worksheet["A2"].value == "Kota/Kabupaten" and worksheet["B2"].value == "KOTA UJI"
+    assert worksheet["A3"].value == "Tahun" and worksheet["B3"].value == 2026
+    assert worksheet["A4"].value == "No"
+    assert worksheet["A5"].value == "Kelompok"
+    assert worksheet["A6"].value == "Elemen"
+    assert worksheet["A7"].value == btb.BUILDING_COLUMNS[0]
+
+    # kolom ke-3 berisi elemen "Pondasi"; nilainya numerik dengan format ribuan
+    assert worksheet.cell(row=6, column=4).value == "Pondasi"
+    nilai = worksheet.cell(row=7, column=4)
+    assert isinstance(nilai.value, (int, float))
+    assert nilai.number_format == "#,##0"
+
+
+def test_transpose_dapat_dibaca_ulang(tmp_path):
+    """Berkas transpose hasil unduhan harus bisa diunggah kembali."""
+    path = str(tmp_path / "transpose.xlsx")
+    asli = dummy_sheet()
+    with open(path, "wb") as handle:
+        handle.write(btb.build_download(asli.to_wide(), "transpose").getvalue())
+
+    with open(path, "rb") as handle:
+        kembali = btb.read_spreadsheet(handle, "transpose.xlsx")
+    assert len(kembali) == 1
+    assert kembali[0].provinsi == "PROV. UJI"
+    assert kembali[0].kota_kabupaten == "KOTA UJI"
+    assert kembali[0].tahun == 2026
+    pd.testing.assert_frame_equal(
+        kembali[0].values.astype(float), asli.values.astype(float), check_names=False
+    )
+
+
+def test_transpose_beberapa_kota_berjajar(tmp_path):
+    path = str(tmp_path / "btb_data.xlsx")
+    btb.save_sheet(path, dummy_sheet("KOTA A", 2026))
+    data = btb.save_sheet(path, dummy_sheet("KOTA B", 2025))
+
+    transposed = btb.wide_to_transposed(data)
+    assert transposed.shape[1] == 2 * len(btb.ROW_LABELS)
+    assert set(transposed.loc["Kota/Kabupaten"]) == {"KOTA A", "KOTA B"}
+
+    with open(path, "rb") as handle:
+        # sheet induk tetap dibaca dari "BTB Data", bukan dari sheet transpose
+        assert len(btb.read_spreadsheet(handle, "btb_data.xlsx")) == 2
+
+
+def test_workbook_memuat_ketiga_bentuk(tmp_path):
+    from openpyxl import load_workbook
+
+    path = str(tmp_path / "btb_data.xlsx")
+    btb.save_sheet(path, dummy_sheet())
+    assert load_workbook(path).sheetnames == [
+        btb.SHEET_NAME,
+        btb.LONG_SHEET_NAME,
+        btb.TRANSPOSE_SHEET_NAME,
+    ]
+
+
+def test_transpose_csv_dikenali(tmp_path):
+    path = str(tmp_path / "transpose.csv")
+    btb.wide_to_transposed(dummy_sheet().to_wide()).to_csv(path, header=False)
+    with open(path, "rb") as handle:
+        sheets = btb.read_spreadsheet(handle, "transpose.csv")
+    assert len(sheets) == 1
+    assert btb.validate(sheets[0]) == []
+
+
 def test_berkas_tanpa_kolom_elemen_ditolak(tmp_path):
     path = str(tmp_path / "salah.csv")
     pd.DataFrame({"A": [1], "B": [2]}).to_csv(path, index=False)

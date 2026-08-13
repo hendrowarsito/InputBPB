@@ -38,6 +38,11 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 SHEET_NAME = "BTB Data"
+LONG_SHEET_NAME = "BTB Long"
+TRANSPOSE_SHEET_NAME = "BTB Transpose"
+
+#: Nama kolom pertama pada bentuk transpose (memuat keterangan tiap baris).
+TRANSPOSE_LABEL = "Keterangan"
 
 #: Kolom identitas yang selalu mendahului kolom tipe bangunan.
 ID_COLUMNS = ["Provinsi", "Kota/Kabupaten", "Tahun", "No", "Kelompok", "Elemen"]
@@ -529,14 +534,47 @@ def read_pdf(file: Any, filename: str = "") -> BTBSheet:
 # ---------------------------------------------------------------------------
 
 
+def _looks_transposed(raw: pd.DataFrame) -> bool:
+    """Benar bila keterangan baris berada di kolom pertama (bentuk transpose)."""
+    if raw.shape[1] < 2:
+        return False
+    first_column = {_norm(v) for v in raw.iloc[:, 0].dropna().astype(str)}
+    return _norm("Elemen") in first_column and bool(
+        first_column & {_norm(c) for c in ("Provinsi", "Kota/Kabupaten", "Tahun")}
+    )
+
+
+def _untranspose(raw: pd.DataFrame) -> pd.DataFrame:
+    """Putar kembali bentuk transpose menjadi bentuk lebar biasa."""
+    raw = raw.dropna(how="all").dropna(axis=1, how="all")
+    body = raw.iloc[:, 1:].copy()
+    body.index = [" ".join(str(v).split()) for v in raw.iloc[:, 0]]
+    wide = body.T.reset_index(drop=True)
+    wide.columns = [str(c) for c in wide.columns]
+    return wide
+
+
 def _read_any_table(file: Any, filename: str) -> pd.DataFrame:
+    """Baca berkas tabel; bentuk transpose dikenali dan diputar otomatis."""
     name = (filename or getattr(file, "name", "") or "").lower()
     if name.endswith((".csv", ".txt", ".tsv")):
         sep = "\t" if name.endswith(".tsv") else None
-        return pd.read_csv(file, sep=sep, engine="python", dtype=object)
-    excel = pd.ExcelFile(file, engine="openpyxl")
-    sheet_name = SHEET_NAME if SHEET_NAME in excel.sheet_names else excel.sheet_names[0]
-    return excel.parse(sheet_name, dtype=object)
+        raw = pd.read_csv(file, sep=sep, engine="python", dtype=object, header=None)
+    else:
+        excel = pd.ExcelFile(file, engine="openpyxl")
+        sheet_name = SHEET_NAME if SHEET_NAME in excel.sheet_names else excel.sheet_names[0]
+        raw = excel.parse(sheet_name, dtype=object, header=None)
+
+    raw = raw.dropna(how="all").reset_index(drop=True)
+    if raw.empty:
+        return pd.DataFrame()
+    if _looks_transposed(raw):
+        return _untranspose(raw)
+
+    # baris pertama adalah kepala tabel
+    df = raw.iloc[1:].reset_index(drop=True)
+    df.columns = [str(c) for c in raw.iloc[0]]
+    return df
 
 
 def read_spreadsheet(file: Any, filename: str = "") -> list[BTBSheet]:
@@ -764,7 +802,66 @@ def _style_worksheet(worksheet, df: pd.DataFrame, freeze: str = "A2") -> None:
     worksheet.auto_filter.ref = worksheet.dimensions
 
 
-def write_workbook(path_or_buffer: Any, wide: pd.DataFrame, include_long: bool = True) -> Any:
+def _style_transposed(worksheet, transposed: pd.DataFrame) -> None:
+    """Rapikan sheet bentuk transpose (keterangan di kolom A, tanpa baris kepala)."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    label_fill = PatternFill("solid", fgColor="1F3864")
+    label_font = Font(bold=True, color="FFFFFF")
+    meta_fill = PatternFill("solid", fgColor="DDEBF7")
+    thin = Side(style="thin", color="D0D0D0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    bold_labels = {TOTAL_A, TOTAL_B, TOTAL_AB, TOTAL_PPN, ROUNDED, PPN_ROW}
+
+    labels = list(transposed.index)
+    elemen_row = labels.index("Elemen") + 1 if "Elemen" in labels else None
+    # kolom yang memuat baris total ditebalkan agar mudah dikenali
+    total_columns = set()
+    if elemen_row:
+        for cell in worksheet[elemen_row][1:]:
+            if cell.value in bold_labels:
+                total_columns.add(cell.column)
+
+    for row_index, label in enumerate(labels, start=1):
+        head = worksheet.cell(row=row_index, column=1)
+        head.fill = label_fill
+        head.font = label_font
+        head.alignment = Alignment(vertical="center", wrap_text=True)
+        for cell in worksheet[row_index]:
+            cell.border = border
+            if cell.column == 1:
+                continue
+            if label in BUILDING_COLUMNS:
+                cell.number_format = _NUMBER_FORMAT
+                cell.alignment = Alignment(horizontal="right")
+            elif label in {"Tahun", "No"}:
+                cell.number_format = "0"
+                cell.alignment = Alignment(horizontal="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", wrap_text=True)
+            if label in {"Provinsi", "Kota/Kabupaten", "Tahun"}:
+                cell.fill = meta_fill
+            if row_index == elemen_row or cell.column in total_columns:
+                cell.font = Font(bold=True)
+
+    worksheet.column_dimensions["A"].width = 34
+    for column_index in range(2, worksheet.max_column + 1):
+        longest = max(
+            len(f"{cell.value:,.0f}") if isinstance(cell.value, (int, float)) else len(str(cell.value or ""))
+            for cell in worksheet[get_column_letter(column_index)]
+        )
+        worksheet.column_dimensions[get_column_letter(column_index)].width = min(max(12, longest + 2), 30)
+    # bekukan kolom keterangan dan blok identitas di atasnya
+    worksheet.freeze_panes = worksheet.cell(row=(elemen_row or 0) + 1, column=2).coordinate
+
+
+def write_workbook(
+    path_or_buffer: Any,
+    wide: pd.DataFrame,
+    include_long: bool = True,
+    include_transposed: bool = True,
+) -> Any:
     """Tulis data BTB ke XLSX yang siap pakai di Excel."""
     wide = wide.copy()
     for column in BUILDING_COLUMNS:
@@ -778,9 +875,31 @@ def write_workbook(path_or_buffer: Any, wide: pd.DataFrame, include_long: bool =
         _style_worksheet(writer.sheets[SHEET_NAME], wide)
         if include_long:
             long = wide_to_long(wide)
-            long.to_excel(writer, index=False, sheet_name="BTB Long")
-            _style_worksheet(writer.sheets["BTB Long"], long)
+            long.to_excel(writer, index=False, sheet_name=LONG_SHEET_NAME)
+            _style_worksheet(writer.sheets[LONG_SHEET_NAME], long)
+        if include_transposed:
+            transposed = wide_to_transposed(wide)
+            # header=False agar Provinsi benar-benar berada di baris 1
+            transposed.to_excel(writer, header=False, sheet_name=TRANSPOSE_SHEET_NAME)
+            _style_transposed(writer.sheets[TRANSPOSE_SHEET_NAME], transposed)
     return path_or_buffer
+
+
+def wide_to_transposed(wide: pd.DataFrame) -> pd.DataFrame:
+    """Putar tabel BTB sehingga keterangannya turun di kolom pertama.
+
+    Baris 1 ``Provinsi``, baris 2 ``Kota/Kabupaten``, baris 3 ``Tahun``,
+    lalu ``No``, ``Kelompok``, ``Elemen``, dan seterusnya satu baris per tipe
+    bangunan. Setiap elemen biaya menjadi satu kolom, sehingga beberapa
+    kota/tahun dapat berjajar dalam satu lembar.
+    """
+    order = [c for c in ID_COLUMNS if c in wide.columns] + [
+        c for c in BUILDING_COLUMNS if c in wide.columns
+    ]
+    transposed = wide[order].T
+    transposed.columns = pd.RangeIndex(1, transposed.shape[1] + 1)
+    transposed.index.name = TRANSPOSE_LABEL
+    return transposed
 
 
 def wide_to_long(wide: pd.DataFrame) -> pd.DataFrame:
@@ -844,15 +963,25 @@ def save_sheet(path: str, sheet: BTBSheet, replace_existing: bool = True) -> pd.
 
 
 def build_download(wide: pd.DataFrame, layout: str = "wide") -> io.BytesIO:
-    """Bangun berkas XLSX untuk diunduh (``wide`` atau ``long``)."""
+    """Bangun berkas XLSX untuk diunduh.
+
+    ``layout`` bernilai ``wide`` (bentuk tabel seperti dokumen asli), ``long``
+    (bentuk panjang siap pivot), atau ``transpose`` (keterangan di kolom
+    pertama: Provinsi baris 1, Kota/Kabupaten baris 2, Tahun baris 3, dst.).
+    """
     buffer = io.BytesIO()
     if layout == "long":
         long = wide_to_long(wide)
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            long.to_excel(writer, index=False, sheet_name="BTB Long")
-            _style_worksheet(writer.sheets["BTB Long"], long)
+            long.to_excel(writer, index=False, sheet_name=LONG_SHEET_NAME)
+            _style_worksheet(writer.sheets[LONG_SHEET_NAME], long)
+    elif layout == "transpose":
+        transposed = wide_to_transposed(wide)
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            transposed.to_excel(writer, header=False, sheet_name=TRANSPOSE_SHEET_NAME)
+            _style_transposed(writer.sheets[TRANSPOSE_SHEET_NAME], transposed)
     else:
-        write_workbook(buffer, wide, include_long=False)
+        write_workbook(buffer, wide, include_long=False, include_transposed=False)
     buffer.seek(0)
     return buffer
 

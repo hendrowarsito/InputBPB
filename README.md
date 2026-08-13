@@ -59,11 +59,41 @@ berkas contoh menghilangkan baris berwarna abu-abu (`PEMBULATAN`,
   menggandakannya.
 - Kepala tabel tidak lagi hilang saat menyimpan: sebelumnya `DataFrame`
   dibongkar ke `values.tolist()` sehingga nama kolom berganti angka 0…N.
-- Unduhan tersedia dalam dua bentuk: **tabel** (seperti dokumen asli) dan
-  **panjang** (siap pivot). Fungsi transpose lama menghapus kolom elemen dan
+- Unduhan tersedia dalam tiga bentuk: **tabel**, **transpose**, dan **panjang**
+  (lihat di bawah). Fungsi transpose lama menghapus kolom elemen dan
   menghasilkan berkas tanpa keterangan baris.
 - Tombol unduh tidak lagi bersarang di dalam tombol lain — pada versi lama
   tombol unduh langsung hilang begitu halaman dimuat ulang.
+
+## Bentuk berkas XLSX
+
+Tiga bentuk tersedia pada tab **Download Data**, dan ketiganya juga ditulis
+sebagai sheet terpisah pada basis data (`BTB Data`, `BTB Long`,
+`BTB Transpose`). Ketiganya dapat diunggah kembali ke aplikasi.
+
+**Tabel** — satu baris per elemen biaya, seperti dokumen aslinya:
+
+| Provinsi | Kota/Kabupaten | Tahun | No | Kelompok | Elemen | Mewah | … |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PROV. DKI JAKARTA | KOTA JAKARTA | 2026 | 3 | A. BIAYA LANGSUNG | Pondasi | 941.613 | … |
+
+**Transpose** — keterangan turun di kolom pertama; setiap elemen biaya menjadi
+satu kolom, sehingga beberapa kota/tahun bisa berjajar dalam satu lembar:
+
+| | | | | |
+| --- | --- | --- | --- | --- |
+| **Provinsi** | PROV. DKI JAKARTA | PROV. DKI JAKARTA | PROV. DKI JAKARTA | … |
+| **Kota/Kabupaten** | KOTA JAKARTA | KOTA JAKARTA | KOTA JAKARTA | … |
+| **Tahun** | 2026 | 2026 | 2026 | … |
+| **No** | 1 | 2 | 3 | … |
+| **Kelompok** | A. BIAYA LANGSUNG | A. BIAYA LANGSUNG | A. BIAYA LANGSUNG | … |
+| **Elemen** | A. BIAYA LANGSUNG | Persiapan | Pondasi | … |
+| **Mewah** | | 0 | 941.613 | … |
+| **Menengah** | | 0 | 803.399 | … |
+| … | | | | |
+
+**Panjang** — satu baris per kombinasi elemen × tipe bangunan, siap dijadikan
+PivotTable.
 
 ## Berkas
 
@@ -71,7 +101,7 @@ berkas contoh menghilangkan baris berwarna abu-abu (`PEMBULATAN`,
 | --- | --- |
 | `input5.py` | Aplikasi Streamlit (3 tab: Input, Data Telah Diinput, Download) |
 | `btb_io.py` | Logika baca/tulis BTB, tanpa Streamlit |
-| `test_btb_io.py` | 33 uji, termasuk uji terhadap PDF contoh |
+| `test_btb_io.py` | 39 uji, termasuk uji terhadap PDF contoh |
 | `samples/` | Lembar BTB contoh (KOTA JAKARTA, 2026) |
 | `requirements.txt` | Dependensi Python |
 | `packages.txt` | Paket sistem untuk Streamlit Cloud (`tesseract-ocr`) |

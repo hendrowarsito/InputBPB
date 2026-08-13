@@ -215,16 +215,26 @@ with tab3:
                 pd.to_numeric(filtered["Tahun"], errors="coerce").isin(tahun_pilihan)
             ]
 
-        layout_label = st.radio(
-            "Format berkas",
-            ["Tabel (seperti dokumen asli)", "Panjang (siap pivot)"],
-            horizontal=True,
-        )
-        layout = "wide" if layout_label.startswith("Tabel") else "long"
+        pilihan_format = {
+            "Tabel (seperti dokumen asli)": "wide",
+            "Transpose (Provinsi di baris 1)": "transpose",
+            "Panjang (siap pivot)": "long",
+        }
+        layout = pilihan_format[
+            st.radio("Format berkas", list(pilihan_format), horizontal=True)
+        ]
 
-        preview = filtered if layout == "wide" else btb.wide_to_long(filtered)
+        if layout == "transpose":
+            preview = btb.wide_to_transposed(filtered).reset_index()
+            st.caption(
+                "Keterangan turun di kolom pertama: Provinsi baris 1, "
+                "Kota/Kabupaten baris 2, Tahun baris 3, lalu No, Kelompok, "
+                "Elemen, dan satu baris untuk tiap tipe bangunan."
+            )
+        else:
+            preview = filtered if layout == "wide" else btb.wide_to_long(filtered)
         st.dataframe(preview, use_container_width=True, hide_index=True)
-        st.caption(f"{len(preview):,} baris siap diunduh.")
+        st.caption(f"{len(preview):,} baris × {len(preview.columns):,} kolom siap diunduh.")
 
         if filtered.empty:
             st.warning("Tidak ada baris yang cocok dengan filter.")
