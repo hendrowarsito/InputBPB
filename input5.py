@@ -215,13 +215,14 @@ with tab3:
                 pd.to_numeric(filtered["Tahun"], errors="coerce").isin(tahun_pilihan)
             ]
 
+        # bentuk transpose dijadikan pilihan pertama sekaligus default
         pilihan_format = {
-            "Tabel (seperti dokumen asli)": "wide",
             "Transpose (Provinsi di baris 1)": "transpose",
+            "Tabel (seperti dokumen asli)": "wide",
             "Panjang (siap pivot)": "long",
         }
         layout = pilihan_format[
-            st.radio("Format berkas", list(pilihan_format), horizontal=True)
+            st.radio("Format berkas", list(pilihan_format), horizontal=True, index=0)
         ]
 
         if layout == "transpose":
